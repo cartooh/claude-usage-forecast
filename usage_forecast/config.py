@@ -45,6 +45,8 @@ class Config:
     projects_dir: str = "~/.claude/projects"
     machine_name: str = ""
     machines_sheet: str = "端末別集計"
+    probe_max_age_min: float = 40.0
+    min_row_interval_min: float = 55.0
     current_usage_label: str = "現在の使用量(%)"
     reset_weekday_label_prefix: str = "リセット曜日"
     reset_hour_label: str = "リセット時刻(時)"

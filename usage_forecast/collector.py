@@ -74,6 +74,47 @@ def read_model_usage(path, label, now, max_age_h):
         return None
 
 
+def _round5min(ts):
+    """The /usage screen shows reset times rounded down to the minute ("10:59am"); snap to 5 min."""
+    return int(round(ts / 300.0)) * 300
+
+
+def read_probe_observation(path, now, max_age_s, statusline_resets=None):
+    """Weekly and 5-hour usage read from the /usage screen by scripts/usage_probe.py.
+
+    Returns (observed_at, seven_day, five_hour) like read_usage_state, or None when
+    the file is missing, too old, or has no weekly window. The reset time is snapped
+    to the statusline's exact value when they agree within an hour.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        log.warning("usage screen file unreadable: %s", type(e).__name__)
+        return None
+    obs = d.get("observed_at")
+    windows = d.get("windows") or {}
+    week = windows.get("all models")
+    if not isinstance(obs, (int, float)) or now - obs > max_age_s or not isinstance(week, dict):
+        return None
+    if not isinstance(week.get("used_percentage"), (int, float)) or not isinstance(week.get("resets_at"), (int, float)):
+        return None
+    resets = int(week["resets_at"])
+    if statusline_resets is not None and abs(resets - statusline_resets) <= 3600:
+        resets = int(statusline_resets)
+    else:
+        resets = _round5min(resets)
+    seven = {"used_percentage": week["used_percentage"], "resets_at": resets}
+    five = None
+    ses = windows.get("session")
+    if isinstance(ses, dict) and isinstance(ses.get("used_percentage"), (int, float)) \
+            and isinstance(ses.get("resets_at"), (int, float)):
+        five = {"used_percentage": ses["used_percentage"], "resets_at": _round5min(ses["resets_at"])}
+    return int(obs), seven, five
+
+
 def read_usage_credits(path, now, max_age_h):
     """'Usage credits' (pay-as-you-go) text from the /usage screen, or ''."""
     try:
@@ -363,6 +404,19 @@ def run(cfg, client, notifier, now=None, dry_run=False, out=print):
     cstate = load_json(cstate_path, {})
 
     obs = read_usage_state(cfg.state_file)
+    # The /usage screen (read every run on every machine) shows the same figure as the web
+    # settings page (rounded, while the statusline floors) and does not depend on Claude Code
+    # being used, so a recent reading is preferred. The statusline wins only when it is newer
+    # and already shows a higher value (usage grew after the screen was read).
+    probe = read_probe_observation(cfg.models_file, now, cfg.probe_max_age_min * 60,
+                                   obs[1]["resets_at"] if obs else None)
+    if probe is not None:
+        statusline_ahead = (
+            obs is not None and obs[0] > probe[0]
+            and predict.same_week(obs[1]["resets_at"], probe[1]["resets_at"])
+            and obs[1]["used_percentage"] > probe[1]["used_percentage"])
+        if not statusline_ahead:
+            obs = probe
     if obs is None:
         return "no-state"
     observed_at, seven, five = obs
@@ -410,6 +464,17 @@ def run(cfg, client, notifier, now=None, dry_run=False, out=print):
     same = [p for p in history if predict.same_week(p.resets_at, resets)]
     if not expired and same:
         latest = max(same, key=lambda p: p.observed_at)
+        if used_now == latest.used and observed_at - latest.observed_at < cfg.min_row_interval_min * 60:
+            # nothing new: keep the log to about one row per hour while usage is flat
+            log.info("usage unchanged at %s%% since %s; no row", used_now, fmt_jst(latest.observed_at))
+            if not dry_run:
+                try:
+                    sync_machine_tokens(cfg, client, resets, now, rows, dry_run)
+                except Exception as e:
+                    log.error("machine token sync failed: %s %s", type(e).__name__, e)
+                cstate["last_key"] = key
+                save_json_atomic(cstate_path, cstate)
+            return "throttled"
         if used_now < latest.used and not predict.is_drop(latest.used, used_now):
             # another machine already logged a fresher (higher) value; ours is a stale render
             log.info("observed %s%% is older than the logged %s%% (another machine); not logged",

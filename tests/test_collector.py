@@ -322,3 +322,57 @@ def test_exhausted_intervals():
     ]
     iv = sorted(collector.exhausted_intervals(rows))
     assert iv == [(START + 120 * H, START + 122 * H), (START + 120 * H, RESET)]
+
+
+def write_probe(cfg, observed_at, week_used, week_resets, session=None):
+    w = {"all models": {"used_percentage": week_used, "resets_at": week_resets}}
+    if session:
+        w["session"] = {"used_percentage": session[0], "resets_at": session[1]}
+    with open(cfg.models_file, "w") as f:
+        json.dump({"observed_at": observed_at, "windows": w}, f)
+
+
+def test_usage_screen_reading_is_used_when_newer(cfg):
+    client = FakeClient()
+    write_state(cfg, START + 50 * H, 11)                       # statusline: 11% (floored)
+    # /usage screen shows "10:59am": snapped to the statusline's exact reset time
+    write_probe(cfg, START + 52 * H, 12, RESET - 60, session=(4, START + 54 * H - 60))
+    assert collector.run(cfg, client, Notifier([]), now=START + 52 * H + 30) == "written"
+    row = client.rows[0]
+    assert row[3] == 12.0 and parse_jst(row[2]) == RESET
+    assert row[9] == 4 and parse_jst(row[10]) == START + 54 * H
+    assert client.usage_cell == 12
+
+
+def test_flat_usage_writes_about_one_row_per_hour(cfg):
+    client = FakeClient()
+    write_state(cfg, START + 40 * H, 1)
+    for i, minutes in enumerate((0, 30, 60, 90, 120)):
+        t = START + 50 * H + minutes * 60
+        write_probe(cfg, t, 12, RESET)
+        collector.run(cfg, client, Notifier([]), now=t + 10)
+    assert [parse_jst(r[1]) - (START + 50 * H) for r in client.rows] == [0, 3600, 7200]
+
+
+def test_old_usage_screen_reading_falls_back_to_statusline(cfg):
+    client = FakeClient()
+    write_state(cfg, START + 50 * H, 11)
+    write_probe(cfg, START + 49 * H, 12, RESET)
+    collector.run(cfg, client, Notifier([]), now=START + 50 * H + 60)
+    assert client.rows[0][3] == 11.0
+
+
+def test_fresh_usage_screen_beats_a_slightly_newer_floored_statusline(cfg):
+    client = FakeClient()
+    write_probe(cfg, START + 50 * H, 12, RESET)
+    write_state(cfg, START + 50 * H + 4, 11)                  # 4 s newer, floored value
+    collector.run(cfg, client, Notifier([]), now=START + 50 * H + 60)
+    assert client.rows[0][3] == 12.0
+
+
+def test_statusline_used_when_newer_and_higher(cfg):
+    client = FakeClient()
+    write_probe(cfg, START + 50 * H, 12, RESET)
+    write_state(cfg, START + 50 * H + 900, 14)
+    collector.run(cfg, client, Notifier([]), now=START + 50 * H + 960)
+    assert client.rows[0][3] == 14.0
