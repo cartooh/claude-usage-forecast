@@ -1,0 +1,88 @@
+{
+  "stale_hours": 12,
+  "thresholds": {
+    "forecast_percent": 100,
+    "used_percent": [
+      80,
+      90
+    ]
+  },
+  "sheets": {
+    "pace_sheet": "ペース表",
+    "log_sheet": "ログ",
+    "chart_sheet": "推移グラフ",
+    "machines_sheet": "端末別集計",
+    "current_usage_label": "現在の使用量(%)",
+    "reset_weekday_label_prefix": "リセット曜日",
+    "reset_hour_label": "リセット時刻(時)"
+  },
+  "tokens": {
+    "_note": "API list prices in USD per million tokens (as of 2026-10). Used only for API-equivalent cost estimates; update them when the official prices change. Models missing here are counted but not priced.",
+    "ratio_min_used_percent": 5,
+    "prices": {
+      "claude-fable-5-1": {
+        "input": 10,
+        "output": 50,
+        "cache_read": 0.25,
+        "cache_write_5m": 12.5,
+        "cache_write_1h": 20
+      },
+      "claude-fable-5": {
+        "input": 10,
+        "output": 50,
+        "cache_read": 1.0,
+        "cache_write_5m": 12.5,
+        "cache_write_1h": 20
+      },
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cache_read": 0.2,
+        "cache_write_5m": 5.0,
+        "cache_write_1h": 8
+      },
+      "claude-opus-5": {
+        "input": 5,
+        "output": 25,
+        "cache_read": 0.5,
+        "cache_write_5m": 6.25,
+        "cache_write_1h": 10
+      },
+      "claude-opus-4-8": {
+        "input": 5,
+        "output": 25,
+        "cache_read": 0.5,
+        "cache_write_5m": 6.25,
+        "cache_write_1h": 10
+      },
+      "claude-sonnet-5-5": {
+        "input": 2,
+        "output": 10,
+        "cache_read": 0.2,
+        "cache_write_5m": 2.5,
+        "cache_write_1h": 4
+      },
+      "claude-sonnet-5": {
+        "input": 2,
+        "output": 10,
+        "cache_read": 0.2,
+        "cache_write_5m": 2.5,
+        "cache_write_1h": 4
+      },
+      "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cache_read": 0.01,
+        "cache_write_5m": 0.125,
+        "cache_write_1h": 0.2
+      },
+      "claude-haiku-4-5": {
+        "input": 1,
+        "output": 5,
+        "cache_read": 0.1,
+        "cache_write_5m": 1.25,
+        "cache_write_1h": 2
+      }
+    }
+  }
+}
