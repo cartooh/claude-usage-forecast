@@ -51,6 +51,9 @@ class Config:
     reset_weekday_label_prefix: str = "リセット曜日"
     reset_hour_label: str = "リセット時刻(時)"
     notify_methods: List[str] = field(default_factory=list)
+    anomaly: dict = field(default_factory=dict)
+    alerts_sheet: str = "アラート"
+    alerts_file: str = str(Path("~/.claude/usage-alerts.json").expanduser())
 
 
 def load_config(config_path=None, env_path=None):
@@ -74,11 +77,14 @@ def load_config(config_path=None, env_path=None):
         cfg.models_file = os.path.expanduser(os.environ["USAGE_MODELS_FILE"])
     if os.environ.get("USAGE_STATE_FILE"):
         cfg.state_file = os.path.expanduser(os.environ["USAGE_STATE_FILE"])
+    cfg.anomaly = raw.get("anomaly", {})
+    if os.environ.get("USAGE_ALERTS_FILE"):
+        cfg.alerts_file = os.path.expanduser(os.environ["USAGE_ALERTS_FILE"])
     tk = raw.get("tokens", {})
     cfg.token_prices = tk.get("prices", {})
     cfg.ratio_min_used = float(tk.get("ratio_min_used_percent", 5))
-    for key in ("pace_sheet", "log_sheet", "chart_sheet", "machines_sheet", "model_label", "current_usage_label",
-                "reset_weekday_label_prefix", "reset_hour_label"):
+    for key in ("pace_sheet", "log_sheet", "chart_sheet", "machines_sheet", "alerts_sheet", "model_label",
+                "current_usage_label", "reset_weekday_label_prefix", "reset_hour_label"):
         if key in sh:
             setattr(cfg, key, sh[key])
     return cfg

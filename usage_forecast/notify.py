@@ -1,4 +1,4 @@
-"""Pluggable notifications: SMTP mail and/or webhook. Off unless NOTIFY_METHODS is set."""
+"""Pluggable notifications: SMTP mail, webhook and/or ntfy push. Off unless NOTIFY_METHODS is set."""
 import json
 import logging
 import os
@@ -32,7 +32,24 @@ def send_webhook(subject, body):
         r.read()
 
 
-SENDERS = {"smtp": send_smtp, "webhook": send_webhook}
+def send_ntfy(subject, body):
+    """Push to a phone through ntfy (https://ntfy.sh or a self-hosted server).
+
+    NTFY_TOPIC is effectively a password on the public server: anyone who knows
+    it can read the messages, so use a long random name and keep it in .env.
+    """
+    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
+    payload = {"topic": os.environ["NTFY_TOPIC"], "title": subject, "message": body,
+               "priority": int(os.environ.get("NTFY_PRIORITY", "4")), "tags": ["warning"]}
+    headers = {"Content-Type": "application/json"}
+    if os.environ.get("NTFY_TOKEN"):
+        headers["Authorization"] = "Bearer " + os.environ["NTFY_TOKEN"]
+    req = urllib.request.Request(server, data=json.dumps(payload).encode("utf-8"), headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        r.read()
+
+
+SENDERS = {"smtp": send_smtp, "webhook": send_webhook, "ntfy": send_ntfy}
 
 
 class Notifier:

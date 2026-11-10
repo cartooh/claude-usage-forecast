@@ -25,6 +25,8 @@ MACHINE_HEADER = [
     "端末", "週リセット日時(JST)", "更新日時(JST)", "入出力+キャッシュ書込(M)", "キャッシュ読込(M)",
     "API換算($)", "Fable API換算($)", "上限到達中API換算($)", "単価未設定モデル",
 ]
+ALERT_HEADER = ["検知日時(JST)", "端末", "種類", "対象", "内容", "キー"]
+ALERT_READ_ROWS = 300  # newest rows read back for de-duplication
 CHART_HEADER = [
     "観測日時", "週使用量(%)", "ちょうど使い切るペース(%)", "予測・平均ペース法(%)", "予測・直近ペース法(%)",
     "上限(%)", "Fable週使用量(%)", "1%あたりトークン(M・キャッシュ読込除く)", "1%あたりAPI換算($)",
@@ -297,6 +299,47 @@ class GSheetClient:
         return len(idx)
 
     # ---- creating missing sheets ----------------------------------------
+    def _alerts_ws(self, create):
+        try:
+            return with_retry(self.sh.worksheet, self.cfg.alerts_sheet)
+        except self._gspread.exceptions.WorksheetNotFound:
+            if not create:
+                return None
+        ws = with_retry(self.sh.add_worksheet, title=self.cfg.alerts_sheet, rows=1000, cols=len(ALERT_HEADER))
+        with_retry(ws.update, range_name="A1", values=[ALERT_HEADER])
+        with_retry(self.sh.batch_update, {"requests": [
+            {"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
+                                       "fields": "gridProperties.frozenRowCount"}},
+            {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
+                            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                            "fields": "userEnteredFormat.textFormat.bold"}},
+            {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 1, "startColumnIndex": 0,
+                                      "endColumnIndex": 1},
+                            "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE_TIME",
+                                                                            "pattern": "yyyy/mm/dd(ddd) hh:mm"}}},
+                            "fields": "userEnteredFormat.numberFormat"}},
+        ]})
+        log.info("created sheet %s", self.cfg.alerts_sheet)
+        return ws
+
+    def read_alerts(self):
+        """The newest alert rows (unformatted, dates as serials); [] if the sheet does not exist yet."""
+        ws = self._alerts_ws(create=False)
+        if ws is None:
+            return []
+        n = len(with_retry(ws.col_values, 1))  # last filled row
+        if n < 2:
+            return []
+        first = max(2, n - ALERT_READ_ROWS + 1)
+        rows = with_retry(ws.get, "A%d:%s%d" % (first, _col(len(ALERT_HEADER)), n),
+                          value_render_option="UNFORMATTED_VALUE", date_time_render_option="SERIAL_NUMBER")
+        return [list(r) + [""] * (len(ALERT_HEADER) - len(r)) for r in rows if r and str(r[0]).strip()]
+
+    def append_alert(self, row):
+        ws = self._alerts_ws(create=True)
+        with_retry(ws.append_row, row, value_input_option="USER_ENTERED",
+                   insert_data_option="OVERWRITE", table_range="A1")
+
     def sheet_titles(self):
         return [w.title for w in with_retry(self.sh.worksheets)]
 

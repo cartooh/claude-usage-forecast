@@ -23,6 +23,7 @@ import sys
 import time
 
 STATE_PATH = os.path.expanduser(os.environ.get("USAGE_STATE_FILE", "~/.claude/usage-state.json"))
+ALERTS_PATH = os.path.expanduser(os.environ.get("USAGE_ALERTS_FILE", "~/.claude/usage-alerts.json"))
 LOG_PATH = os.path.expanduser(os.environ.get("USAGE_HOOK_LOG", "~/.claude/usage-hook.log"))
 LOG_MAX_BYTES = 256 * 1024
 SESSION_TTL_SEC = 8 * 24 * 3600
@@ -63,6 +64,24 @@ def render(data):
         if w is not None:
             parts.append("%s:%g%%" % (label, w["used_percentage"]))
     return " ".join(parts)
+
+
+def alerts_text(now=None, path=None):
+    """'⚠ <newest alert> (+n)' for alerts written by the collector that are still recent, else ''."""
+    now = time.time() if now is None else now
+    path = ALERTS_PATH if path is None else path
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        keep = float(d.get("expires_after_s", 3 * 3600))
+        items = [a for a in d.get("alerts") or [] if now - float(a.get("at", 0)) <= keep and a.get("short")]
+    except Exception:
+        return ""
+    if not items:
+        return ""
+    items.sort(key=lambda a: -float(a["at"]))
+    more = " (+%d)" % (len(items) - 1) if len(items) > 1 else ""
+    return "\u26a0 %s%s" % (items[0]["short"], more)
 
 
 def _load(path):
@@ -210,6 +229,7 @@ def main(argv=None):
 
     With --wrap, the original command's output is shown (the usage line is
     appended only if it printed nothing); without it, the usage line is shown.
+    Recent unusual-usage alerts from the collector are appended in both cases.
     """
     argv = sys.argv[1:] if argv is None else argv
     wrapped = argv[argv.index("--wrap") + 1] if "--wrap" in argv[:-1] else None
@@ -232,6 +252,12 @@ def main(argv=None):
                 line = out
         except Exception as e:
             _log("wrapped statusline failed: %r" % (e,))
+    try:
+        warn = alerts_text()
+        if warn:
+            line = (line + " " + warn).strip()
+    except Exception as e:
+        _log("alerts failed: %r" % (e,))
     try:
         sys.stdout.write(line + "\n")
     except Exception:

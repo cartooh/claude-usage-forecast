@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import predict, tokens
+from . import anomaly, predict, tokens
 from .config import load_config
 from .notify import Notifier
 from .sheets import LOG_HEADER, SheetError, format_percent
@@ -650,9 +650,22 @@ def main(argv=None):
                 log.error("sheet connection failed: %s %s", type(e).__name__, e)
                 return 1
             print("[dry-run] シートに接続できないため履歴なしで計算します: %s %s" % (type(e).__name__, e))
-        result = run(cfg, client, Notifier(cfg.notify_methods), dry_run=args.dry_run)
-        log.info("result: %s", result)
-        return 0
+        notifier = Notifier(cfg.notify_methods)
+        rc = 0
+        try:
+            result = run(cfg, client, notifier, dry_run=args.dry_run)
+            log.info("result: %s", result)
+        except Exception as e:
+            log.exception("collector failed: %s", e)
+            rc = 1
+        try:
+            found = anomaly.check(cfg, client, notifier, dry_run=args.dry_run)
+            if found:
+                log.info("anomaly alerts: %d", len(found))
+        except Exception as e:
+            log.exception("anomaly check failed: %s", e)
+            rc = 1
+        return rc
     except Exception as e:
         log.exception("collector failed: %s", e)
         return 1

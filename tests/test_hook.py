@@ -1,4 +1,5 @@
 import json
+import sys
 
 import statusline_hook as hook
 
@@ -123,3 +124,15 @@ def test_wrap_failure_falls_back_to_usage_line(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload("a", 58, 1))))
     assert hook.main(["--wrap", "exit 3"]) == 0
     assert capsys.readouterr().out == "7d:58%\n"
+
+
+def test_main_appends_recent_alert(monkeypatch, capsys, tmp_path):
+    import io
+    import time
+    p = tmp_path / "alerts.json"
+    p.write_text(json.dumps({"expires_after_s": 3600, "alerts": [{"at": time.time() - 60, "short": "待機ループ pc1 $20/h"}]}))
+    monkeypatch.setattr(hook, "ALERTS_PATH", str(p))
+    monkeypatch.setattr(hook, "STATE_PATH", str(tmp_path / "s.json"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    assert hook.main() == 0
+    assert capsys.readouterr().out.strip() == "⚠ 待機ループ pc1 $20/h"

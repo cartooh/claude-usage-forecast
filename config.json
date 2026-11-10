@@ -14,7 +14,8 @@
     "machines_sheet": "端末別集計",
     "current_usage_label": "現在の使用量(%)",
     "reset_weekday_label_prefix": "リセット曜日",
-    "reset_hour_label": "リセット時刻(時)"
+    "reset_hour_label": "リセット時刻(時)",
+    "alerts_sheet": "アラート"
   },
   "tokens": {
     "_note": "API list prices in USD per million tokens (as of 2026-10). Used only for API-equivalent cost estimates; update them when the official prices change. Models missing here are counted but not priced.",
@@ -84,5 +85,29 @@
         "cache_write_1h": 2
       }
     }
+  },
+  "anomaly": {
+    "_note": "Unusual-usage detection (see usage_forecast/anomaly.py). Costs are API-list-price equivalents in USD. Set enabled to false to turn it off.",
+    "enabled": true,
+    "session_cost_per_hour": 15,
+    "session_sustained_hours": 3,
+    "session_burst_per_hour": 40,
+    "wait_loop_cache_write_mtok": 2,
+    "wait_loop_max_output_ktok": 10,
+    "wait_loop_min_calls": 3,
+    "pace_factor": 3,
+    "pace_window_hours": 6,
+    "pace_min_points": 3,
+    "machine_stale_hours": 3,
+    "machine_ignore_after_days": 7,
+    "cooldown_hours": 24,
+    "pace_cooldown_hours": 12,
+    "statusline_hours": 3,
+    "push_kinds": [
+      "wait_loop",
+      "sustained",
+      "burst",
+      "silent"
+    ]
   }
 }
