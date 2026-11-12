@@ -120,10 +120,15 @@ def update(cfg, client, now=None, dry_run=False, out=print):
         return []
     if rows:
         client.append_hourly(rows)
+        state["chart_pending"] = True
     if first <= last_done:
         state["last_hour"] = last_done
         _save_state(state_path, state)
-    if rows:  # at most about once an hour per machine, to stay well inside the Sheets API quota
+    # Rebuild only after new rows (about once an hour per machine, to stay inside the Sheets API
+    # quota), and again on the next run if that rebuild failed.
+    if state.get("chart_pending"):
         header, hourly, daily = build_pivot(client.read_hourly(), now)
         client.write_machine_chart(header, hourly, daily)
+        state["chart_pending"] = False
+        _save_state(state_path, state)
     return rows

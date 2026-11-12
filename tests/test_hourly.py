@@ -1,3 +1,4 @@
+import pytest
 from usage_forecast import hourly, tokens
 from usage_forecast.config import Config
 from usage_forecast.timeutil import fmt_jst, parse_jst
@@ -67,3 +68,23 @@ def test_update_is_incremental(tmp_path, monkeypatch):
     hourly.update(cfg, c, now=T0 + 2 * H + 400)      # 21:00 now settled
     assert [r[0][11:16] for r in c.rows] == ["20:00", "21:00"]
     assert c.chart[0] == ["時刻", "pc1"]
+
+
+def test_failed_chart_rebuild_is_retried(tmp_path, monkeypatch):
+    msgs = {"a": msg(T0 + 60)}
+    monkeypatch.setattr(hourly.tokens, "scan", lambda d, since_ts: msgs)
+    cfg = Config(var_dir=str(tmp_path), machine_name="pc1", token_prices=PRICES)
+    c = FakeClient()
+
+    def quota(*a):
+        raise RuntimeError("429")
+    c.read_hourly = quota
+    with pytest.raises(RuntimeError):
+        hourly.update(cfg, c, now=T0 + H + 400)      # rows appended, chart rebuild fails
+    assert len(c.rows) == 1 and c.chart is None
+    del c.read_hourly
+    hourly.update(cfg, c, now=T0 + H + 1000)         # no new rows, but the chart is rebuilt now
+    assert len(c.rows) == 1 and c.chart[0] == ["時刻", "pc1"]
+    c.chart = None
+    hourly.update(cfg, c, now=T0 + H + 1500)         # done: no further rewrites
+    assert c.chart is None

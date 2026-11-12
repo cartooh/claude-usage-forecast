@@ -81,6 +81,12 @@ def with_retry(fn, *args, attempts=6, base=1.0, max_sleep=60.0, sleep=time.sleep
             if code is None or not (code == 429 or 500 <= code < 600) or i == attempts - 1:
                 raise
             reason = "HTTP %s" % code
+            if code == 429:
+                # The read quota is per minute and shared by every machine: wait for the next minute.
+                delay = min(max_sleep, 20.0 * (i + 1)) + random.uniform(0, 10.0)
+                log.warning("Sheets API %s, retry %d/%d in %.1fs", reason, i + 1, attempts - 1, delay)
+                sleep(delay)
+                continue
         except (requests.ConnectionError, requests.Timeout) as e:
             if i == attempts - 1:
                 raise

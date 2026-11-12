@@ -32,7 +32,7 @@ def test_retry_on_429_then_success():
         return "ok"
 
     assert with_retry(fn, sleep=sleeps.append) == "ok"
-    assert len(sleeps) == 2 and sleeps[1] > sleeps[0] - 1
+    assert len(sleeps) == 2 and sleeps[0] >= 20  # a 429 waits for the next quota minute
 
 
 def test_no_retry_on_403():
