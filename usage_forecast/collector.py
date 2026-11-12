@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import anomaly, predict, tokens
+from . import anomaly, hourly, predict, tokens
 from .config import load_config
 from .notify import Notifier
 from .sheets import LOG_HEADER, SheetError, format_percent
@@ -664,6 +664,13 @@ def main(argv=None):
                 log.info("anomaly alerts: %d", len(found))
         except Exception as e:
             log.exception("anomaly check failed: %s", e)
+            rc = 1
+        try:
+            added = hourly.update(cfg, client, dry_run=args.dry_run)
+            if added:
+                log.info("hourly rows: %d", len(added))
+        except Exception as e:
+            log.exception("hourly update failed: %s", e)
             rc = 1
         return rc
     except Exception as e:

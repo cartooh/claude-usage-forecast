@@ -25,6 +25,10 @@ MACHINE_HEADER = [
     "端末", "週リセット日時(JST)", "更新日時(JST)", "入出力+キャッシュ書込(M)", "キャッシュ読込(M)",
     "API換算($)", "Fable API換算($)", "上限到達中API換算($)", "単価未設定モデル",
 ]
+HOURLY_HEADER = ["時刻(JST)", "端末", "API換算($)", "入出力+キャッシュ書込(M)", "キャッシュ読込(M)", "応答数",
+                 "最も使ったセッション", "そのセッションのAPI換算($)"]
+MACHINE_CHART_DAILY_COL = 10   # K: daily table; A..I hold the hourly table (time + up to 8 machines)
+MACHINE_CHART_ANCHOR_COL = 20  # U: charts
 ALERT_HEADER = ["検知日時(JST)", "端末", "種類", "対象", "内容", "キー"]
 ALERT_READ_ROWS = 300  # newest rows read back for de-duplication
 CHART_HEADER = [
@@ -339,6 +343,95 @@ class GSheetClient:
         ws = self._alerts_ws(create=True)
         with_retry(ws.append_row, row, value_input_option="USER_ENTERED",
                    insert_data_option="OVERWRITE", table_range="A1")
+
+    # ---- hourly use per machine ------------------------------------------
+    def _simple_ws(self, title, header, create, rows=1000, date_cols=1, pattern="yyyy/mm/dd(ddd) hh:mm"):
+        try:
+            return with_retry(self.sh.worksheet, title)
+        except self._gspread.exceptions.WorksheetNotFound:
+            if not create:
+                return None
+        ws = with_retry(self.sh.add_worksheet, title=title, rows=rows, cols=max(len(header), 26))
+        with_retry(ws.update, range_name="A1", values=[header])
+        reqs = [
+            {"updateSheetProperties": {"properties": {"sheetId": ws.id, "gridProperties": {"frozenRowCount": 1}},
+                                       "fields": "gridProperties.frozenRowCount"}},
+            {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1},
+                            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+                            "fields": "userEnteredFormat.textFormat.bold"}},
+        ]
+        if date_cols:
+            reqs.append({"repeatCell": {
+                "range": {"sheetId": ws.id, "startRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": date_cols},
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE_TIME", "pattern": pattern}}},
+                "fields": "userEnteredFormat.numberFormat"}})
+        with_retry(self.sh.batch_update, {"requests": reqs})
+        log.info("created sheet %s", title)
+        return ws
+
+    def append_hourly(self, rows):
+        ws = self._simple_ws(self.cfg.hourly_sheet, HOURLY_HEADER, create=True, rows=2000)
+        with_retry(ws.append_rows, rows, value_input_option="USER_ENTERED",
+                   insert_data_option="OVERWRITE", table_range="A1")
+
+    def read_hourly(self):
+        ws = self._simple_ws(self.cfg.hourly_sheet, HOURLY_HEADER, create=False)
+        if ws is None:
+            return []
+        rows = with_retry(ws.get, "A2:%s" % _col(len(HOURLY_HEADER)), value_render_option="UNFORMATTED_VALUE",
+                          date_time_render_option="SERIAL_NUMBER")
+        return [r for r in rows if r]
+
+    def write_machine_chart(self, header, hourly, daily):
+        """Rewrite the pivot tables; (re)build the two charts when the machine columns change."""
+        title = self.cfg.machine_chart_sheet
+        ws = self._simple_ws(title, header, create=True, rows=400, date_cols=0)
+        old = with_retry(ws.row_values, 1)
+        n = len(header)
+        dcol = MACHINE_CHART_DAILY_COL
+        with_retry(ws.batch_clear, ["A1:I", "%s1:%s" % (_col(dcol + 1), _col(dcol + 9))])
+        with_retry(ws.update, range_name="A1", values=[header] + hourly, value_input_option="USER_ENTERED")
+        with_retry(ws.update, range_name="%s1" % _col(dcol + 1), values=[["日付"] + header[1:]] + daily,
+                   value_input_option="USER_ENTERED")
+        sid = ws.id
+        meta = with_retry(self.sh.fetch_sheet_metadata, {"fields": "sheets(properties.sheetId,charts.chartId)"})
+        charts = [c["chartId"] for s in meta.get("sheets", []) if s["properties"]["sheetId"] == sid
+                  for c in s.get("charts", [])]
+        if len(charts) == 2 and old[:n] == header and len([c for c in old if str(c).strip()]) == n:
+            return False
+        reqs = [{"deleteEmbeddedObject": {"objectId": c}} for c in charts]
+        reqs += [
+            {"repeatCell": {"range": {"sheetId": sid, "startRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 1},
+                            "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE_TIME",
+                                                                            "pattern": "mm/dd(ddd) hh:mm"}}},
+                            "fields": "userEnteredFormat.numberFormat"}},
+            {"repeatCell": {"range": {"sheetId": sid, "startRowIndex": 1, "startColumnIndex": dcol,
+                                      "endColumnIndex": dcol + 1},
+                            "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE",
+                                                                            "pattern": "mm/dd(ddd)"}}},
+                            "fields": "userEnteredFormat.numberFormat"}},
+        ]
+
+        def src(col, rows):
+            return {"sourceRange": {"sources": [{"sheetId": sid, "startRowIndex": 0, "endRowIndex": rows + 1,
+                                                 "startColumnIndex": col, "endColumnIndex": col + 1}]}}
+
+        def chart(title_, ctype, c0, rows, row_at, xtitle):
+            return {"addChart": {"chart": {
+                "spec": {"title": title_, "basicChart": {
+                    "chartType": ctype, "stackedType": "STACKED", "legendPosition": "BOTTOM_LEGEND",
+                    "headerCount": 1, "axis": [{"position": "BOTTOM_AXIS", "title": xtitle},
+                                               {"position": "LEFT_AXIS", "title": "API換算 $"}],
+                    "domains": [{"domain": src(c0, rows)}],
+                    "series": [{"series": src(c0 + i, rows), "targetAxis": "LEFT_AXIS"} for i in range(1, n)]}},
+                "position": {"overlayPosition": {
+                    "anchorCell": {"sheetId": sid, "rowIndex": row_at, "columnIndex": MACHINE_CHART_ANCHOR_COL},
+                    "widthPixels": 900, "heightPixels": 380}}}}}
+        reqs.append(chart("端末別 1時間ごとのAPI換算(直近7日)", "AREA", 0, len(hourly), 0, "時刻"))
+        reqs.append(chart("端末別 1日ごとのAPI換算(直近30日)", "COLUMN", dcol, len(daily), 20, "日付"))
+        with_retry(self.sh.batch_update, {"requests": reqs})
+        log.info("rebuilt charts on %s for %s", title, header[1:])
+        return True
 
     def sheet_titles(self):
         return [w.title for w in with_retry(self.sh.worksheets)]

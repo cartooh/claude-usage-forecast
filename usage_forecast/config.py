@@ -53,6 +53,8 @@ class Config:
     notify_methods: List[str] = field(default_factory=list)
     anomaly: dict = field(default_factory=dict)
     alerts_sheet: str = "アラート"
+    hourly_sheet: str = "端末別1時間"
+    machine_chart_sheet: str = "端末別グラフ"
     alerts_file: str = str(Path("~/.claude/usage-alerts.json").expanduser())
 
 
@@ -83,7 +85,8 @@ def load_config(config_path=None, env_path=None):
     tk = raw.get("tokens", {})
     cfg.token_prices = tk.get("prices", {})
     cfg.ratio_min_used = float(tk.get("ratio_min_used_percent", 5))
-    for key in ("pace_sheet", "log_sheet", "chart_sheet", "machines_sheet", "alerts_sheet", "model_label",
+    for key in ("pace_sheet", "log_sheet", "chart_sheet", "machines_sheet", "alerts_sheet", "hourly_sheet",
+                "machine_chart_sheet", "model_label",
                 "current_usage_label", "reset_weekday_label_prefix", "reset_hour_label"):
         if key in sh:
             setattr(cfg, key, sh[key])

@@ -15,7 +15,9 @@
     "current_usage_label": "現在の使用量(%)",
     "reset_weekday_label_prefix": "リセット曜日",
     "reset_hour_label": "リセット時刻(時)",
-    "alerts_sheet": "アラート"
+    "alerts_sheet": "アラート",
+    "hourly_sheet": "端末別1時間",
+    "machine_chart_sheet": "端末別グラフ"
   },
   "tokens": {
     "_note": "API list prices in USD per million tokens (as of 2026-10). Used only for API-equivalent cost estimates; update them when the official prices change. Models missing here are counted but not priced.",
